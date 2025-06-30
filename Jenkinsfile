@@ -2,11 +2,10 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'DEPLOY_VERSION', defaultValue: '', description: 'Enter Docker image version to deploy (e.g. v1, v2, v3). Leave empty to skip deployment.')
+        string(name: 'DEPLOY_VERSION', defaultValue: '', description: 'Deploy a specific Docker image version. Leave empty to skip deployment.')
     }
 
     environment {
-        DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')
         DOCKER_IMAGE = 'purveshpeche/myapp'
     }
 
@@ -43,15 +42,6 @@ pipeline {
             }
         }
 
-        // Optional test stage to verify SSH connectivity
-        stage('Test SSH') {
-            steps {
-                sshagent(['ec2-ssh-key']) {
-                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@ec2-18-204-195-116.compute-1.amazonaws.com echo "SSH works!"'
-                }
-            }
-        }
-
         stage('Deploy to EC2') {
             when {
                 expression { return params.DEPLOY_VERSION?.trim() }
@@ -60,38 +50,10 @@ pipeline {
                 script {
                     echo "Deploying version: ${params.DEPLOY_VERSION}"
                 }
+
                 sshagent(['ec2-ssh-key']) {
                     sh """
-ssh -o StrictHostKeyChecking=no ubuntu@ec2-18-204-195-116.compute-1.amazonaws.com << 'EOF'
-if ! command -v docker &> /dev/null; then
-    echo "Docker not found. Installing Docker..."
-
-    if [ -f /etc/os-release ]; then
-        . /etc/os-release
-        OS=\$ID
-    fi
-
-    if [ "\$OS" = "amzn" ]; then
-        sudo yum update -y
-        sudo yum install -y docker
-        sudo systemctl start docker
-        sudo systemctl enable docker
-    elif [ "\$OS" = "ubuntu" ]; then
-        sudo apt update -y
-        sudo apt install -y docker.io
-        sudo systemctl start docker
-        sudo systemctl enable docker
-    else
-        echo "Unsupported OS. Manual Docker install may be required."
-        exit 1
-    fi
-
-    sudo usermod -aG docker ec2-user
-    echo "Docker installed successfully."
-else
-    echo "Docker is already installed."
-fi
-
+ssh -o StrictHostKeyChecking=no ec2-user@ec2-18-204-195-116.compute-1.amazonaws.com << 'EOF'
 sudo docker pull $DOCKER_IMAGE:${params.DEPLOY_VERSION}
 sudo docker stop myapp || true
 sudo docker rm myapp || true
@@ -103,3 +65,4 @@ EOF
         }
     }
 }
+

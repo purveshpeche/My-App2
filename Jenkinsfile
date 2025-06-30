@@ -7,7 +7,7 @@ pipeline {
 
     environment {
         DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')
-        DOCKER_IMAGE = 'mayur2808/myapp'
+        DOCKER_IMAGE = 'purveshpeche/myapp'
     }
 
     stages {
@@ -47,7 +47,7 @@ pipeline {
         stage('Test SSH') {
             steps {
                 sshagent(['ec2-ssh-key']) {
-                    sh 'ssh -o StrictHostKeyChecking=no ec2-user@ec2-44-201-193-120.compute-1.amazonaws.com echo "SSH works!"'
+                    sh 'ssh -o StrictHostKeyChecking=no ec2-18-204-195-116.compute-1.amazonaws.com echo "SSH works!"'
                 }
             }
         }
@@ -62,7 +62,7 @@ pipeline {
                 }
                 sshagent(['ec2-ssh-key']) {
                     sh """
-ssh -o StrictHostKeyChecking=no ec2-user@ec2-44-201-193-120.compute-1.amazonaws.com << 'EOF'
+ssh -o StrictHostKeyChecking=no ec2-18-204-195-116.compute-1.amazonaws.com << 'EOF'
 if ! command -v docker &> /dev/null; then
     echo "Docker not found. Installing Docker..."
 

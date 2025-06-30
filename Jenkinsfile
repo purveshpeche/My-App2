@@ -1,16 +1,12 @@
 pipeline {
     agent any
 
-    parameters {
-        string(name: 'DEPLOY_VERSION', defaultValue: '', description: 'Enter Docker image version to deploy (e.g. v1, v2, v3). Leave empty to skip deployment.')
-    }
-
     environment {
-        DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')
         DOCKER_IMAGE = 'purveshpeche/myapp'
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 git branch: 'main', url: 'https://github.com/purveshpeche/My-App2.git'
@@ -21,7 +17,7 @@ pipeline {
             steps {
                 script {
                     env.VERSION = "v${env.BUILD_NUMBER}"
-                    echo "Generated version: ${env.VERSION}"
+                    echo "Generated image version: ${env.VERSION}"
                 }
             }
         }
@@ -36,70 +32,76 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     sh '''
-                        echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
                         docker push $DOCKER_IMAGE:$VERSION
+                        docker logout
                     '''
                 }
             }
         }
 
-        // Optional test stage to verify SSH connectivity
-        stage('Test SSH') {
+        stage('Test SSH Connectivity') {
             steps {
                 sshagent(['ec2-ssh-key']) {
-                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@ec2-18-204-195-116.compute-1.amazonaws.com echo "SSH works!"'
+                    sh 'ssh -o StrictHostKeyChecking=no ubuntu@ec2-18-204-195-116.compute-1.amazonaws.com echo "✅ SSH connection working!"'
                 }
             }
         }
 
         stage('Deploy to EC2') {
-            when {
-                expression { return params.DEPLOY_VERSION?.trim() }
-            }
             steps {
-                script {
-                    echo "Deploying version: ${params.DEPLOY_VERSION}"
-                }
                 sshagent(['ec2-ssh-key']) {
                     sh """
 ssh -o StrictHostKeyChecking=no ubuntu@ec2-18-204-195-116.compute-1.amazonaws.com << 'EOF'
+set -e
+
+# Ensure Docker is installed
 if ! command -v docker &> /dev/null; then
-    echo "Docker not found. Installing Docker..."
+    echo "Installing Docker..."
 
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         OS=\$ID
     fi
 
-    if [ "\$OS" = "amzn" ]; then
-        sudo yum update -y
-        sudo yum install -y docker
-        sudo systemctl start docker
-        sudo systemctl enable docker
-    elif [ "\$OS" = "ubuntu" ]; then
+    if [ "\$OS" = "ubuntu" ]; then
         sudo apt update -y
         sudo apt install -y docker.io
         sudo systemctl start docker
         sudo systemctl enable docker
+    elif [ "\$OS" = "amzn" ]; then
+        sudo yum update -y
+        sudo yum install -y docker
+        sudo systemctl start docker
+        sudo systemctl enable docker
     else
-        echo "Unsupported OS. Manual Docker install may be required."
+        echo "Unsupported OS. Exiting."
         exit 1
     fi
-
-    sudo usermod -aG docker ec2-user
-    echo "Docker installed successfully."
-else
-    echo "Docker is already installed."
 fi
 
-sudo docker pull $DOCKER_IMAGE:${params.DEPLOY_VERSION}
+echo "✅ Docker is ready. Pulling image and deploying..."
+
+# Pull, stop old container, run new
+sudo docker pull $DOCKER_IMAGE:$VERSION
 sudo docker stop myapp || true
 sudo docker rm myapp || true
-sudo docker run -d --name myapp -p 80:80 $DOCKER_IMAGE:${params.DEPLOY_VERSION}
+sudo docker run -d --name myapp -p 80:80 $DOCKER_IMAGE:$VERSION
+
+echo "🚀 Deployed $DOCKER_IMAGE:$VERSION successfully."
 EOF
                     """
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ CI/CD pipeline completed successfully. Deployed version: $VERSION"
+        }
+        failure {
+            echo "❌ CI/CD pipeline failed."
         }
     }
 }
